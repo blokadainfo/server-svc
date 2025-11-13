@@ -361,7 +361,7 @@ services:
   bigbrother:
     image: ghcr.io/blokadainfo/bigbrother:develop
     environment:
-      RECORDINGS_PATH: "/recordings"
+      RECORDINGS_PATH: "/recordings" # Same as volume target
       RECORDINGS_HOURS: 24
       STREAMS_0_SRC: ${BIGBROTHER_STREAMS_0_SRC}
       STREAMS_0_DST: ${BIGBROTHER_STREAMS_0_DST}
@@ -373,8 +373,8 @@ services:
       STREAMS_3_DST: ${BIGBROTHER_STREAMS_3_DST}
     volumes:
       - type: bind
-        source: /var/bigbrother/recordings
-        target: /var/stor/dvr
+        source: /var/stor/dvr
+        target: /recordings # Same as env RECORDINGS_PATH
     networks:
       - internal
     restart: unless-stopped
