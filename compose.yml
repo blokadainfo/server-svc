@@ -500,6 +500,35 @@ services:
     networks:
       internal:
     restart: unless-stopped
+  
+  vikunja:
+    image: docker.io/vikunja/vikunja:latest
+    environment:
+      VIKUNJA_SERVICE_PUBLICURL: "https://${VIKUNJA_DOMAIN}"
+    volumes:
+      - type: volume
+        source: vikunja-files-vol
+        target: /files
+      - type: volume
+        source: vikunja-db-vol
+        target: /db
+    ports:
+      - "3456:3456"
+    networks:
+      - internal
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.vikunja.rule=Host(`${VIKUNJA_DOMAIN}`)"
+      - "traefik.http.routers.vikunja.middlewares=crowdsec@docker"
+      - "traefik.http.routers.vikunja.entrypoints=websecure"
+      - "traefik.http.routers.vikunja.tls=true"
+      - "traefik.http.routers.vikunja.tls.certresolver=letsencrypt"
+      - "traefik.http.services.vikunja.loadbalancer.server.port=3456"
+      - "traefik.http.middlewares.crowdsec.plugin.bouncer.enabled=true"
+      - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdsecmode=stream"
+      - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdseclapikey=${BOUNCER_KEY_TRAEFIK}"
+      - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdsecappsecenabled=true"
+    restart: unless-stopped
 
   # MinIO - currently unused
   # minio:
@@ -564,3 +593,5 @@ volumes:
   jitsi-prosody-plugins-vol:
   jitsi-jicofo-conf-vol:
   jitsi-jvb-conf-vol:
+  vikunja-files-vol:
+  vikunja-db-vol:
