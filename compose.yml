@@ -508,7 +508,7 @@ services:
     volumes:
       - type: volume
         source: vikunja-files-vol
-        target: /files
+        target: /app/vikunja/files
       - type: volume
         source: vikunja-db-vol
         target: /db
