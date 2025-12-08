@@ -359,10 +359,11 @@ services:
 
   # Big Brother
   bigbrother:
-    image: ghcr.io/blokadainfo/bigbrother:develop
+    image: ghcr.io/blokadainfo/bigbrother:v0.0.1
     environment:
       RECORDINGS_PATH: "/recordings" # Same as volume target
-      RECORDINGS_HOURS: 24
+      RECORDINGS_LIMIT: 1000 # In GB
+      RECORDINGS_DRYRUN: false
       STREAMS_0_SRC: ${BIGBROTHER_STREAMS_0_SRC}
       STREAMS_0_DST: ${BIGBROTHER_STREAMS_0_DST}
       STREAMS_1_SRC: ${BIGBROTHER_STREAMS_1_SRC}
