@@ -503,7 +503,7 @@ services:
     restart: unless-stopped
   
   vikunja:
-    image: docker.io/vikunja/vikunja:latest
+    image: docker.io/vikunja/vikunja:1.0.0-rc3
     environment:
       VIKUNJA_SERVICE_PUBLICURL: "https://${VIKUNJA_DOMAIN}"
       VIKUNJA_SERVICE_ENABLEREGISTRATION: false
@@ -523,8 +523,6 @@ services:
       - type: volume
         source: vikunja-db-vol
         target: /db
-    ports:
-      - "3456:3456"
     networks:
       - internal
     labels:
