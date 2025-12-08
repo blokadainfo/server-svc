@@ -359,7 +359,7 @@ services:
 
   # Big Brother
   bigbrother:
-    image: ghcr.io/blokadainfo/bigbrother:develop
+    image: ghcr.io/blokadainfo/bigbrother:v0.0.1
     environment:
       RECORDINGS_PATH: "/recordings" # Same as volume target
       RECORDINGS_LIMIT: 1000 # In GB
