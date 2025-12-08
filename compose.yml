@@ -501,6 +501,43 @@ services:
     networks:
       internal:
     restart: unless-stopped
+  
+  vikunja:
+    image: docker.io/vikunja/vikunja:1.0.0-rc3
+    environment:
+      VIKUNJA_SERVICE_PUBLICURL: "https://${VIKUNJA_DOMAIN}"
+      VIKUNJA_SERVICE_ENABLEREGISTRATION: false
+      VIKUNJA_SERVICE_ENABLEUSERDELETION: false
+      VIKUNJA_AUTH_OPENID_ENABLED: true
+      VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHELIA_NAME: "Authelia"
+      VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHELIA_AUTHURL: "https://${AUTHELIA_DOMAIN}"
+      VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHELIA_CLIENTID: "vikunja"
+      VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHELIA_CLIENTSECRET: ${VIKUNJA_SECRET}
+      VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHELIA_SCOPE: "openid profile email vikunja_scope"
+      VIKUNJA_SERVICE_CUSTOMLOGOURL: ${VIKUNJA_LOGO}
+      VIKUNJA_AUTH_LOCAL_ENABLED: false
+    volumes:
+      - type: volume
+        source: vikunja-files-vol
+        target: /app/vikunja/files
+      - type: volume
+        source: vikunja-db-vol
+        target: /db
+    networks:
+      - internal
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.vikunja.rule=Host(`${VIKUNJA_DOMAIN}`)"
+      - "traefik.http.routers.vikunja.middlewares=crowdsec@docker"
+      - "traefik.http.routers.vikunja.entrypoints=websecure"
+      - "traefik.http.routers.vikunja.tls=true"
+      - "traefik.http.routers.vikunja.tls.certresolver=letsencrypt"
+      - "traefik.http.services.vikunja.loadbalancer.server.port=3456"
+      - "traefik.http.middlewares.crowdsec.plugin.bouncer.enabled=true"
+      - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdsecmode=stream"
+      - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdseclapikey=${BOUNCER_KEY_TRAEFIK}"
+      - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdsecappsecenabled=true"
+    restart: unless-stopped
 
   # MinIO - currently unused
   # minio:
@@ -565,3 +602,5 @@ volumes:
   jitsi-prosody-plugins-vol:
   jitsi-jicofo-conf-vol:
   jitsi-jvb-conf-vol:
+  vikunja-files-vol:
+  vikunja-db-vol:
