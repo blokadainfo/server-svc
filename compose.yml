@@ -72,64 +72,197 @@ services:
       - internal
     restart: unless-stopped
 
-  # VPN
-  wg-easy:
-    image: ghcr.io/wg-easy/wg-easy:15.1.0
+  # Analytics
+  umami-postgres:
+    image: docker.io/library/postgres:16.9
     environment:
-      WG_DEVICE: lo # Set to eth0 to allow internet, otherwise lo is loopback
-      INIT_ENABLED: true
-      INIT_USERNAME: ${VPN_GUI_USERNAME:-admin}
-      INIT_PASSWORD: ${VPN_GUI_PASSWORD:-admin}
-      INIT_HOST: ${VPN_DOMAIN:-}
-      INIT_PORT: 51820
-      INIT_DNS: ${VPN_DNS:-9.9.9.9,149.112.112.112} # Sadly cannot be disabled
-      INIT_IPV4_CIDR: 10.13.12.0/24
-      INIT_IPV6_CIDR: fd00:1312::/64
+      POSTGRES_DB: ${UMAMI_DATABASE_DB:-um}
+      POSTGRES_USER: ${UMAMI_DATABASE_USER:-um}
+      POSTGRES_PASSWORD: ${UMAMI_DATABASE_PASSWORD}
     volumes:
       - type: volume
-        source: wg-conf-vol
-        target: /etc/wireguard
+        source: umami-postgres-vol
+        target: /var/lib/postgresql/data
         volume:
           nocopy: false
-      - type: bind
-        source: /lib/modules
-        target: /lib/modules
-        read_only: true
-    ports:
-      - "51820:51820/udp"
     networks:
-      internal:
-        driver_opts:
-          com.docker.network.endpoint.ifname: eth0
-      # Custom IP addresses required for correct IPv6 setup
-      # wireguard:
-      #   driver_opts:
-      #     com.docker.network.endpoint.ifname: eth0
-      #   ipv4_address: 10.42.42.42
-      #   ipv6_address: fdcc:ad94:bacf:61a3::2a
-    cap_add:
-      - NET_ADMIN
-      - SYS_MODULE
-    sysctls:
-      - net.ipv4.ip_forward=1
-      - net.ipv4.conf.all.src_valid_mark=1
-      # Uncomment to enable IPv6
-      # - net.ipv6.conf.all.disable_ipv6=0
-      # - net.ipv6.conf.all.forwarding=1
-      # - net.ipv6.conf.default.forwarding=1
+      - internal
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${UMAMI_DATABASE_USER:-um} -d ${UMAMI_DATABASE_DB:-um}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  umami-pgdumper:
+    image: docker.io/martlark/pg_dump:16.1
+    environment:
+      CRON_SCHEDULE: "1 * * * *"
+      RETAIN_COUNT: 1
+      PGHOST: "umami-postgres"
+      POSTGRES_DB: ${UMAMI_DATABASE_DB:-um}
+      PGUSER: ${UMAMI_DATABASE_USER:-um}
+      POSTGRES_PASSWORD: ${UMAMI_DATABASE_PASSWORD}
+    volumes:
+      - type: bind
+        source: /var/stor/umami/pgdump
+        target: /dump
+    networks:
+      - internal
+    restart: unless-stopped
+    depends_on:
+      umami-postgres:
+        condition: service_healthy
+        restart: true
+
+  umami-restic:
+    image: ghcr.io/lobaro/restic-backup-docker:v1.4.2
+    environment:
+      BACKUP_CRON: "52 * * * *" # Every hour at 52nd minute
+      RESTIC_FORGET_ARGS: "--prune --keep-last 3 --keep-hourly 12 --keep-daily 7 --keep-weekly 4 --keep-monthly 3"
+      RESTIC_PASSWORD: "${UMAMI_RESTIC_ENCRYPTION_KEY}"
+      RESTIC_REPOSITORY: "s3:https://${UMAMI_RESTIC_S3_ENDPOINT}/${UMAMI_RESTIC_S3_BUCKET}"
+      AWS_ACCESS_KEY_ID: "${UMAMI_RESTIC_S3_ACCESS_KEY_ID}"
+      AWS_SECRET_ACCESS_KEY: "${UMAMI_RESTIC_S3_SECRET_ACCESS_KEY}"
+    volumes:
+      - type: bind
+        source: /var/stor/umami
+        target: /data/backup
+        read_only: true
+    networks:
+      - internal
+    restart: unless-stopped
+
+  umami-valkey:
+    image: docker.io/valkey/valkey:8.1.5
+    command:
+      - valkey-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - "${UMAMI_CACHE_PASSWORD}"
+    volumes:
+      - type: volume
+        source: umami-valkey-vol
+        target: /data
+        volume:
+          nocopy: false
+    networks:
+      - internal
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - "CMD"
+        - "valkey-cli"
+        - "-a"
+        - "${UMAMI_CACHE_PASSWORD}"
+        - "ping"
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  umami:
+    init: true # https://github.com/krallin/tini#using-tini
+    image: ghcr.io/umami-software/umami:v3.0.3
+    environment:
+      DATABASE_URL: postgresql://${UMAMI_DATABASE_USER:-um}:${UMAMI_DATABASE_PASSWORD}@umami-postgres:5432/${UMAMI_DATABASE_DB:-um}
+      REDIS_URL: redis://${UMAMI_CACHE_PASSWORD}@umami-valkey:6379
+      APP_SECRET: ${UMAMI_APP_SECRET}
+      DISABLE_LOGIN: 1 # Requires proper Authelia middleware setup
+      DISABLE_UPDATES: 1
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.wg-easy.rule=Host(`${VPN_DOMAIN}`)"
-      - "traefik.http.routers.wg-easy.middlewares=crowdsec@docker"
-      - "traefik.http.routers.wg-easy.entrypoints=websecure"
-      - "traefik.http.routers.wg-easy.tls=true"
-      - "traefik.http.routers.wg-easy.tls.certresolver=letsencrypt"
-      - "traefik.http.services.wg-easy.loadbalancer.server.port=51821"
+      - "traefik.http.routers.umami.rule=Host(`${UMAMI_DOMAIN}`)"
+      - "traefik.http.routers.umami.middlewares=crowdsec@docker,authelia@docker"
+      - "traefik.http.routers.umami.entrypoints=websecure"
+      - "traefik.http.routers.umami.tls=true"
+      - "traefik.http.routers.umami.tls.certresolver=letsencrypt"
+      - "traefik.http.services.umami.loadbalancer.server.port=3000"
       - "traefik.http.middlewares.crowdsec.plugin.bouncer.enabled=true"
       - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdsecmode=stream"
       - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdseclapikey=${BOUNCER_KEY_TRAEFIK}"
       - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdsecappsecenabled=true"
+      - "traefik.http.middlewares.authelia.forwardAuth.address=https://${AUTHELIA_DOMAIN}/api/authz/forward-auth"
+      - "traefik.http.middlewares.authelia.forwardAuth.trustForwardHeader=true"
+      - "traefik.http.middlewares.authelia.forwardAuth.authResponseHeaders=Remote-User,Remote-Groups,Remote-Email,Remote-Name"
     restart: unless-stopped
+    depends_on:
+      umami-postgres:
+        condition: service_healthy
+        restart: true
+      umami-valkey:
+        condition: service_healthy
+        restart: true
+    healthcheck:
+      test: ["CMD-SHELL", "curl http://localhost:3000/api/heartbeat"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # # VPN
+  # wg-easy:
+  #   image: ghcr.io/wg-easy/wg-easy:15.1.0
+  #   environment:
+  #     WG_DEVICE: lo # Set to eth0 to allow internet, otherwise lo is loopback
+  #     INIT_ENABLED: true
+  #     INIT_USERNAME: ${VPN_GUI_USERNAME:-admin}
+  #     INIT_PASSWORD: ${VPN_GUI_PASSWORD:-admin}
+  #     INIT_HOST: ${VPN_DOMAIN:-}
+  #     INIT_PORT: 51820
+  #     INIT_DNS: ${VPN_DNS:-9.9.9.9,149.112.112.112} # Sadly cannot be disabled
+  #     INIT_IPV4_CIDR: 10.13.12.0/24
+  #     INIT_IPV6_CIDR: fd00:1312::/64
+  #   volumes:
+  #     - type: volume
+  #       source: wg-conf-vol
+  #       target: /etc/wireguard
+  #       volume:
+  #         nocopy: false
+  #     - type: bind
+  #       source: /lib/modules
+  #       target: /lib/modules
+  #       read_only: true
+  #   ports:
+  #     - "51820:51820/udp"
+  #   networks:
+  #     internal:
+  #       driver_opts:
+  #         com.docker.network.endpoint.ifname: eth0
+  #     # Custom IP addresses required for correct IPv6 setup
+  #     # wireguard:
+  #     #   driver_opts:
+  #     #     com.docker.network.endpoint.ifname: eth0
+  #     #   ipv4_address: 10.42.42.42
+  #     #   ipv6_address: fdcc:ad94:bacf:61a3::2a
+  #   cap_add:
+  #     - NET_ADMIN
+  #     - SYS_MODULE
+  #   sysctls:
+  #     - net.ipv4.ip_forward=1
+  #     - net.ipv4.conf.all.src_valid_mark=1
+  #     # Uncomment to enable IPv6
+  #     # - net.ipv6.conf.all.disable_ipv6=0
+  #     # - net.ipv6.conf.all.forwarding=1
+  #     # - net.ipv6.conf.default.forwarding=1
+  #   labels:
+  #     - "traefik.enable=true"
+  #     - "traefik.http.routers.wg-easy.rule=Host(`${VPN_DOMAIN}`)"
+  #     - "traefik.http.routers.wg-easy.middlewares=crowdsec@docker"
+  #     - "traefik.http.routers.wg-easy.entrypoints=websecure"
+  #     - "traefik.http.routers.wg-easy.tls=true"
+  #     - "traefik.http.routers.wg-easy.tls.certresolver=letsencrypt"
+  #     - "traefik.http.services.wg-easy.loadbalancer.server.port=51821"
+  #     - "traefik.http.middlewares.crowdsec.plugin.bouncer.enabled=true"
+  #     - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdsecmode=stream"
+  #     - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdseclapikey=${BOUNCER_KEY_TRAEFIK}"
+  #     - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdsecappsecenabled=true"
+  #   restart: unless-stopped
 
   # Password manager
   vaultwarden-postgres:
@@ -501,7 +634,7 @@ services:
     networks:
       internal:
     restart: unless-stopped
-  
+
   vikunja:
     image: docker.io/vikunja/vikunja:1.0.0-rc3
     environment:
@@ -591,7 +724,9 @@ volumes:
   crowdsec-conf-vol:
   traefik-logs-vol:
   traefik-acme-vol:
-  wg-conf-vol:
+  umami-postgres-vol:
+  umami-valkey-vol:
+  # wg-conf-vol:
   vaultwarden-postgres-vol:
   sftpgo-postgres-vol:
   jitsi-web-conf-vol:
