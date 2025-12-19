@@ -169,7 +169,7 @@ services:
 
   umami:
     init: true # https://github.com/krallin/tini#using-tini
-    image: ghcr.io/umami-software/umami:v3.0.3
+    image: ghcr.io/umami-software/umami:3.0.3
     environment:
       DATABASE_URL: postgresql://${UMAMI_DATABASE_USER:-um}:${UMAMI_DATABASE_PASSWORD}@umami-postgres:5432/${UMAMI_DATABASE_DB:-um}
       REDIS_URL: redis://${UMAMI_CACHE_PASSWORD}@umami-valkey:6379
