@@ -176,6 +176,8 @@ services:
       APP_SECRET: ${UMAMI_APP_SECRET}
       DISABLE_LOGIN: 1 # Requires proper Authelia middleware setup
       DISABLE_UPDATES: 1
+    networks:
+      - internal
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.umami.rule=Host(`${UMAMI_DOMAIN}`)"
