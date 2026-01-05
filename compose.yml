@@ -492,7 +492,7 @@ services:
         condition: service_healthy
         restart: true
 
-  # Big Brother
+  # BigBrotherDVR
   bigbrother:
     image: ghcr.io/blokadainfo/bigbrother:v0.0.1
     environment:
@@ -515,128 +515,7 @@ services:
       - internal
     restart: unless-stopped
 
-  # Jitsi Meet
-  jitsi-web:
-    depends_on:
-      - jitsi-jvb
-    image: docker.io/jitsi/web:stable-10431
-    environment:
-      TZ: ${TZ:-UTC}
-      PUBLIC_URL: "https://${JITSI_DOMAIN}"
-      ENABLE_AUTH: ${JITSI_ENABLE_AUTH:-1}
-      ENABLE_GUESTS: ${JITSI_ENABLE_GUESTS:-1}
-    volumes:
-      - type: volume
-        source: jitsi-web-conf-vol
-        target: /config
-        volume:
-          nocopy: false
-      - type: volume
-        source: jitsi-web-crontab-vol
-        target: /var/spool/cron/crontabs
-        volume:
-          nocopy: false
-      - type: volume
-        source: jitsi-web-transcripts-vol
-        target: /usr/share/jitsi-meet/transcripts
-        volume:
-          nocopy: false
-      - type: volume
-        source: jitsi-web-load-vol
-        target: /usr/share/jitsi-meet/load-test
-        volume:
-          nocopy: false
-    networks:
-      internal:
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.jitsi.rule=Host(`${JITSI_DOMAIN}`)"
-      - "traefik.http.routers.jitsi.middlewares=crowdsec@docker,authelia@docker"
-      - "traefik.http.routers.jitsi.entrypoints=websecure"
-      - "traefik.http.routers.jitsi.tls=true"
-      - "traefik.http.routers.jitsi.tls.certresolver=letsencrypt"
-      - "traefik.http.services.jitsi.loadbalancer.server.port=80"
-      - "traefik.http.middlewares.crowdsec.plugin.bouncer.enabled=true"
-      - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdsecmode=stream"
-      - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdseclapikey=${BOUNCER_KEY_TRAEFIK}"
-      - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdsecappsecenabled=true"
-      - "traefik.http.middlewares.authelia.forwardAuth.address=https://${AUTHELIA_DOMAIN}/api/authz/forward-auth"
-      - "traefik.http.middlewares.authelia.forwardAuth.trustForwardHeader=true"
-      - "traefik.http.middlewares.authelia.forwardAuth.authResponseHeaders=Remote-User,Remote-Groups,Remote-Email,Remote-Name"
-    restart: unless-stopped
-
-  jitsi-prosody:
-    image: docker.io/jitsi/prosody:stable-10431
-    environment:
-      TZ: ${TZ:-UTC}
-      PUBLIC_URL: "https://${JITSI_DOMAIN}"
-      AUTH_TYPE: ${JITSI_AUTH_TYPE:-internal}
-      ENABLE_AUTH: ${JITSI_ENABLE_AUTH:-1}
-      ENABLE_GUESTS: ${JITSI_ENABLE_GUESTS:-1}
-      JICOFO_AUTH_PASSWORD: ${JICOFO_AUTH_PASSWORD}
-      JVB_AUTH_PASSWORD: ${JVB_AUTH_PASSWORD}
-    volumes:
-      - type: volume
-        source: jitsi-prosody-conf-vol
-        target: /config
-        volume:
-          nocopy: false
-      - type: volume
-        source: jitsi-prosody-plugins-vol
-        target: /prosody-plugins-custom
-        volume:
-          nocopy: false
-    expose:
-      - "5222"
-      - "5269"
-      - "5347"
-      - "5280"
-    networks:
-      internal:
-        aliases:
-          - xmpp.meet.jitsi
-    restart: unless-stopped
-
-  jitsi-jicofo:
-    depends_on:
-      - jitsi-prosody
-    image: docker.io/jitsi/jicofo:stable-10431
-    environment:
-      TZ: ${TZ:-UTC}
-      PUBLIC_URL: "https://${JITSI_DOMAIN}"
-      AUTH_TYPE: ${JITSI_AUTH_TYPE:-internal}
-      ENABLE_AUTH: ${JITSI_ENABLE_AUTH:-1}
-      JICOFO_AUTH_PASSWORD: ${JICOFO_AUTH_PASSWORD}
-    volumes:
-      - type: volume
-        source: jitsi-jicofo-conf-vol
-        target: /config
-        volume:
-          nocopy: false
-    networks:
-      internal:
-    restart: unless-stopped
-
-  jitsi-jvb:
-    depends_on:
-      - jitsi-prosody
-    image: docker.io/jitsi/jvb:stable-10431
-    environment:
-      TZ: ${TZ:-UTC}
-      PUBLIC_URL: "https://${JITSI_DOMAIN}"
-      JVB_AUTH_PASSWORD: ${JVB_AUTH_PASSWORD}
-    volumes:
-      - type: volume
-        source: jitsi-jvb-conf-vol
-        target: /config
-        volume:
-          nocopy: false
-    ports:
-      - "10000:10000/udp"
-    networks:
-      internal:
-    restart: unless-stopped
-
+  # Workspace
   vikunja:
     image: docker.io/vikunja/vikunja:1.0.0-rc3
     environment:
@@ -674,50 +553,6 @@ services:
       - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdsecappsecenabled=true"
     restart: unless-stopped
 
-  # MinIO - currently unused
-  # minio:
-  #   image: docker.io/minio/minio:RELEASE.2025-07-23T15-54-02Z
-  #   command: "server /data --console-address ':9001'"
-  #   environment:
-  #     MINIO_BROWSER_REDIRECT_URL: "https://${MINIO_CONSOLE_DOMAIN}"
-  #     MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
-  #     MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
-  #   volumes:
-  #     - type: bind
-  #       source: /var/stor/minio/data
-  #       target: /data
-  #   networks:
-  #     - internal
-  #   labels:
-  #     - "traefik.enable=true"
-  #     - "traefik.http.routers.minio.rule=Host(`${MINIO_S3_DOMAIN}`)"
-  #     - "traefik.http.routers.minio.middlewares=crowdsec@docker"
-  #     - "traefik.http.routers.minio.entrypoints=websecure"
-  #     - "traefik.http.routers.minio.tls=true"
-  #     - "traefik.http.routers.minio.tls.certresolver=letsencrypt"
-  #     - "traefik.http.routers.minio.service=minio"
-  #     - "traefik.http.services.minio.loadbalancer.server.port=9000"
-  #     - "traefik.http.routers.minio-console.rule=Host(`${MINIO_CONSOLE_DOMAIN}`)"
-  #     - "traefik.http.routers.minio-console.middlewares=crowdsec@docker"
-  #     - "traefik.http.routers.minio-console.entrypoints=websecure"
-  #     - "traefik.http.routers.minio-console.tls=true"
-  #     - "traefik.http.routers.minio-console.tls.certresolver=letsencrypt"
-  #     - "traefik.http.routers.minio-console.service=minio-console"
-  #     - "traefik.http.services.minio-console.loadbalancer.server.port=9001"
-  #     - "traefik.http.middlewares.crowdsec.plugin.bouncer.enabled=true"
-  #     - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdsecmode=stream"
-  #     - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdseclapikey=${BOUNCER_KEY_TRAEFIK}"
-  #     - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdsecappsecenabled=true"
-  #   restart: unless-stopped
-  #   healthcheck:
-  #     test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-  #     interval: 30s
-  #     retries: 3
-  #     start_period: 10s
-  #     timeout: 10s
-
-  # beszel github
-
 networks:
   internal:
 
@@ -728,16 +563,7 @@ volumes:
   traefik-acme-vol:
   umami-postgres-vol:
   umami-valkey-vol:
-  # wg-conf-vol:
   vaultwarden-postgres-vol:
   sftpgo-postgres-vol:
-  jitsi-web-conf-vol:
-  jitsi-web-crontab-vol:
-  jitsi-web-transcripts-vol:
-  jitsi-web-load-vol:
-  jitsi-prosody-conf-vol:
-  jitsi-prosody-plugins-vol:
-  jitsi-jicofo-conf-vol:
-  jitsi-jvb-conf-vol:
   vikunja-files-vol:
   vikunja-db-vol:
