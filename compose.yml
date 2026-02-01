@@ -121,12 +121,19 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.wireguard.rule=Host(`${VPN_DOMAIN}`)"
-      - "traefik.http.routers.wireguard.middlewares=authelia@docker"
+      - "traefik.http.routers.wireguard.middlewares=crowdsec@docker,authelia@docker"
       - "traefik.http.routers.wireguard.entrypoints=websecure"
       - "traefik.http.routers.wireguard.tls=true"
       - "traefik.http.routers.wireguard.tls.certresolver=letsencrypt"
       - "traefik.http.routers.wireguard.service=wireguard"
       - "traefik.http.services.wireguard.loadbalancer.server.port=51821"
+      - "traefik.http.middlewares.crowdsec.plugin.bouncer.enabled=true"
+      - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdsecmode=stream"
+      - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdseclapikey=${BOUNCER_KEY_TRAEFIK}"
+      - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdsecappsecenabled=true"
+      - "traefik.http.middlewares.authelia.forwardAuth.address=https://${AUTHELIA_DOMAIN}/api/authz/forward-auth"
+      - "traefik.http.middlewares.authelia.forwardAuth.trustForwardHeader=true"
+      - "traefik.http.middlewares.authelia.forwardAuth.authResponseHeaders=Remote-User,Remote-Groups,Remote-Email,Remote-Name"
     restart: unless-stopped
 
   # Analytics
