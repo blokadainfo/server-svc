@@ -27,32 +27,43 @@ services:
         target: /etc/crowdsec/acquis.yaml
         read_only: true
     networks:
-      - internal
+      - traefik-2-crowdsec
     restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --spider --quiet --tries=1 --timeout=5 http://localhost:8080/health > /dev/null 2>&1 || exit 1",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   traefik:
-    depends_on:
-      - crowdsec
-    image: docker.io/library/traefik:v3.5.3
+    image: docker.io/library/traefik:v3.6.6
     command:
       - "--accesslog"
       - "--accesslog.filepath=/var/log/traefik/access.log"
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
-      - "--entrypoints.web.address=:80"
-      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.address=:8080"
+      - "--entrypoints.web.http.redirections.entrypoint.to=:443"
       - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
-      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.web.http.middlewares=crowdsec@docker"
+      - "--entrypoints.websecure.address=:8443"
       - "--entrypoints.websecure.http3"
+      - "--entrypoints.websecure.http3.advertisedPort=443"
+      - "--entrypoints.websecure.http.middlewares=crowdsec@docker"
       - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}"
       - "--certificatesresolvers.letsencrypt.acme.storage=acme/acme.json"
       - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
       - "--experimental.plugins.bouncer.modulename=github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin"
-      - "--experimental.plugins.bouncer.version=v1.4.5"
+      - "--experimental.plugins.bouncer.version=v1.4.6"
     ports:
-      - "80:80/tcp"
-      - "443:443/tcp"
-      - "443:443/udp"
+      - "80:8080/tcp"
+      - "443:8443/tcp"
+      - "443:8443/udp"
     volumes:
       - type: volume
         source: traefik-logs-vol
@@ -69,8 +80,278 @@ services:
         target: /var/run/docker.sock
         read_only: true
     networks:
-      - internal
+      - traefik-2-crowdsec
+      - traefik-2-whoami
+      - traefik-2-lldap
+      - traefik-2-authelia
+      - traefik-2-umami
+      - traefik-2-vaultwarden
+      - traefik-2-sftpgo
+      - traefik-2-vikunja
     restart: unless-stopped
+    depends_on:
+      crowdsec:
+        condition: service_healthy
+        restart: true
+
+  whoami:
+    image: docker.io/traefik/whoami:v1.11
+    command:
+      - "--port=8080"
+      - "--name=whoami"
+    networks:
+      - traefik-2-whoami
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${DOCKER_NETWORK_PREFIX}_traefik-2-whoami"
+      - "traefik.http.middlewares.crowdsec.plugin.bouncer.enabled=true"
+      - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdsecmode=stream"
+      - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdseclapikey=${BOUNCER_KEY_TRAEFIK}"
+      - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdsecappsecenabled=true"
+      - "traefik.http.middlewares.authelia.forwardAuth.address=http://authelia:9091/api/authz/forward-auth"
+      - "traefik.http.middlewares.authelia.forwardAuth.authResponseHeaders=Remote-User,Remote-Groups,Remote-Email,Remote-Name"
+
+  # IDP
+  lldap-postgres:
+    image: docker.io/library/postgres:16.9
+    environment:
+      POSTGRES_DB: ${LLDAP_POSTGRES_DB:-lld}
+      POSTGRES_USER: ${LLDAP_POSTGRES_USER:-lld}
+      POSTGRES_PASSWORD: ${LLDAP_POSTGRES_PASSWORD}
+    volumes:
+      - type: volume
+        source: lldap-postgres-vol
+        target: /var/lib/postgresql/data
+        volume:
+          nocopy: false
+    networks:
+      - lldap-2-postgres
+      - lldap-pgdumper-2-postgres
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${LLDAP_POSTGRES_USER:-lld} -d ${LLDAP_POSTGRES_DB:-lld}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  lldap-pgdumper:
+    image: docker.io/martlark/pg_dump:16.1
+    environment:
+      CRON_SCHEDULE: "1 * * * *"
+      RETAIN_COUNT: 1
+      PGHOST: "lldap-postgres"
+      POSTGRES_DB: ${LLDAP_POSTGRES_DB:-lld}
+      PGUSER: ${LLDAP_POSTGRES_USER:-lld}
+      POSTGRES_PASSWORD: ${LLDAP_POSTGRES_PASSWORD}
+    volumes:
+      - type: bind
+        source: /var/stor/lldap/pgdump
+        target: /dump
+    networks:
+      - lldap-pgdumper-2-postgres
+    restart: unless-stopped
+    depends_on:
+      lldap-postgres:
+        condition: service_healthy
+        restart: true
+
+  lldap-restic:
+    image: ghcr.io/lobaro/restic-backup-docker:v1.4.2
+    environment:
+      BACKUP_CRON: "12 * * * *"
+      RESTIC_FORGET_ARGS: "--prune --keep-last 3 --keep-hourly 12 --keep-daily 7 --keep-weekly 4 --keep-monthly 6"
+      RESTIC_PASSWORD: "${LLDAP_RESTIC_ENCRYPTION_KEY}"
+      RESTIC_REPOSITORY: "s3:https://${LLDAP_RESTIC_S3_ENDPOINT}/${LLDAP_RESTIC_S3_BUCKET}"
+      AWS_ACCESS_KEY_ID: "${LLDAP_RESTIC_S3_ACCESS_KEY_ID}"
+      AWS_SECRET_ACCESS_KEY: "${LLDAP_RESTIC_S3_SECRET_ACCESS_KEY}"
+    volumes:
+      - type: bind
+        source: /var/stor/lldap
+        target: /data/backup
+        read_only: true
+    networks:
+      - lldap-restic-2-internet
+    restart: unless-stopped
+
+  lldap:
+    image: docker.io/lldap/lldap:v0.6.2
+    environment:
+      LLDAP_JWT_SECRET: ${LLDAP_JWT_SECRET}
+      LLDAP_KEY_SEED: ${LLDAP_KEY_SEED}
+      LLDAP_LDAP_BASE_DN: ${LLDAP_BASE_DN}
+      LLDAP_LDAP_USER_PASS: ${LLDAP_ADMIN_PASSWORD}
+      LLDAP_DATABASE_URL: "postgres://${LLDAP_POSTGRES_USER:-lld}:${LLDAP_POSTGRES_PASSWORD}@lldap-postgres/${LLDAP_POSTGRES_DB:-lld}"
+    networks:
+      - traefik-2-lldap
+      - lldap-2-postgres
+      - authelia-2-lldap
+    restart: unless-stopped
+    depends_on:
+      lldap-postgres:
+        condition: service_healthy
+        restart: true
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${DOCKER_NETWORK_PREFIX}_traefik-2-lldap"
+      - "traefik.http.routers.lldap.rule=Host(`${LLDAP_DOMAIN}`)"
+      - "traefik.http.routers.lldap.entrypoints=websecure"
+      - "traefik.http.routers.lldap.tls=true"
+      - "traefik.http.routers.lldap.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.lldap.service=lldap"
+      - "traefik.http.services.lldap.loadbalancer.server.port=17170"
+
+  # SSO
+  authelia-valkey:
+    image: docker.io/valkey/valkey:8.1.3
+    command:
+      [
+        "valkey-server",
+        "--appendonly",
+        "yes",
+        "--requirepass",
+        "${AUTHELIA_VALKEY_PASSWORD}",
+      ]
+    volumes:
+      - type: volume
+        source: authelia-valkey-vol
+        target: /data
+        volume:
+          nocopy: false
+    networks:
+      - authelia-2-valkey
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "valkey-cli", "-a", "${AUTHELIA_VALKEY_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  authelia-postgres:
+    image: docker.io/library/postgres:16.9
+    environment:
+      POSTGRES_DB: ${AUTHELIA_POSTGRES_DB:-atl}
+      POSTGRES_USER: ${AUTHELIA_POSTGRES_USER:-atl}
+      POSTGRES_PASSWORD: ${AUTHELIA_POSTGRES_PASSWORD}
+    volumes:
+      - type: volume
+        source: authelia-postgres-vol
+        target: /var/lib/postgresql/data
+        volume:
+          nocopy: false
+    networks:
+      - authelia-2-postgres
+      - authelia-pgdumper-2-postgres
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${AUTHELIA_POSTGRES_USER:-atl} -d ${AUTHELIA_POSTGRES_DB:-atl}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  authelia-pgdumper:
+    image: docker.io/martlark/pg_dump:16.1
+    environment:
+      CRON_SCHEDULE: "1 * * * *"
+      RETAIN_COUNT: 1
+      PGHOST: "authelia-postgres"
+      POSTGRES_DB: ${AUTHELIA_POSTGRES_DB:-atl}
+      PGUSER: ${AUTHELIA_POSTGRES_USER:-atl}
+      POSTGRES_PASSWORD: ${AUTHELIA_POSTGRES_PASSWORD}
+    volumes:
+      - type: bind
+        source: /var/stor/authelia/pgdump
+        target: /dump
+    networks:
+      - authelia-pgdumper-2-postgres
+    restart: unless-stopped
+    depends_on:
+      authelia-postgres:
+        condition: service_healthy
+        restart: true
+
+  authelia-restic:
+    image: ghcr.io/lobaro/restic-backup-docker:v1.4.2
+    environment:
+      BACKUP_CRON: "12 * * * *"
+      RESTIC_FORGET_ARGS: "--prune --keep-last 3 --keep-hourly 12 --keep-daily 7 --keep-weekly 4 --keep-monthly 6"
+      RESTIC_PASSWORD: "${AUTHELIA_RESTIC_ENCRYPTION_KEY}"
+      RESTIC_REPOSITORY: "s3:https://${AUTHELIA_RESTIC_S3_ENDPOINT}/${AUTHELIA_RESTIC_S3_BUCKET}"
+      AWS_ACCESS_KEY_ID: "${AUTHELIA_RESTIC_S3_ACCESS_KEY_ID}"
+      AWS_SECRET_ACCESS_KEY: "${AUTHELIA_RESTIC_S3_SECRET_ACCESS_KEY}"
+    volumes:
+      - type: bind
+        source: /var/stor/authelia
+        target: /data/backup
+        read_only: true
+    networks:
+      - authelia-restic-2-internet
+    restart: unless-stopped
+
+  authelia:
+    image: docker.io/authelia/authelia:4.39.14
+    environment:
+      AUTHELIA_AUTHENTICATION_BACKEND_PASSWORD_RESET_DISABLE: true
+      AUTHELIA_AUTHENTICATION_BACKEND_LDAP_IMPLEMENTATION: "lldap"
+      AUTHELIA_AUTHENTICATION_BACKEND_LDAP_ADDRESS: "ldap://lldap:3890"
+      AUTHELIA_AUTHENTICATION_BACKEND_LDAP_BASE_DN: ${LLDAP_BASE_DN}
+      AUTHELIA_AUTHENTICATION_BACKEND_LDAP_USER: "UID=authelia,OU=people,${LLDAP_BASE_DN}"
+      AUTHELIA_AUTHENTICATION_BACKEND_LDAP_PASSWORD: ${AUTHELIA_LDAP_PASSWORD}
+      AUTHELIA_TOTP_ISSUER: ${AUTHELIA_DOMAIN}
+      AUTHELIA_PASSWORD_POLICY_ZXCVBN_ENABLED: true
+      AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET: ${AUTHELIA_JWT_SECRET}
+      AUTHELIA_SESSION_SECRET: ${AUTHELIA_SESSION_SECRET}
+      AUTHELIA_SESSION_REDIS_HOST: "authelia-valkey"
+      AUTHELIA_SESSION_REDIS_USERNAME: "default"
+      AUTHELIA_SESSION_REDIS_PASSWORD: ${AUTHELIA_VALKEY_PASSWORD}
+      AUTHELIA_STORAGE_ENCRYPTION_KEY: ${AUTHELIA_STORAGE_ENCRYPTION_KEY}
+      AUTHELIA_STORAGE_POSTGRES_ADDRESS: "tcp://authelia-postgres:5432"
+      AUTHELIA_STORAGE_POSTGRES_DATABASE: ${AUTHELIA_POSTGRES_DB:-atl}
+      AUTHELIA_STORAGE_POSTGRES_USERNAME: ${AUTHELIA_POSTGRES_USER:-atl}
+      AUTHELIA_STORAGE_POSTGRES_PASSWORD: ${AUTHELIA_POSTGRES_PASSWORD}
+      AUTHELIA_NOTIFIER_SMTP_ADDRESS: ${AUTHELIA_SMTP_ADDRESS}
+      AUTHELIA_NOTIFIER_SMTP_USERNAME: ${AUTHELIA_SMTP_USERNAME}
+      AUTHELIA_NOTIFIER_SMTP_PASSWORD: ${AUTHELIA_SMTP_PASSWORD}
+      AUTHELIA_NOTIFIER_SMTP_SENDER: ${AUTHELIA_SMTP_SENDER}
+      AUTHELIA_IDENTITY_PROVIDERS_OIDC_HMAC_SECRET: ${AUTHELIA_HMAC_SECRET}
+    volumes:
+      - type: bind
+        source: ./config/authelia.yml
+        target: /config/configuration.yml
+        read_only: true
+    networks:
+      - traefik-2-authelia
+      - authelia-2-valkey
+      - authelia-2-postgres
+      - authelia-2-lldap
+    restart: unless-stopped
+    depends_on:
+      authelia-valkey:
+        condition: service_healthy
+        restart: true
+      authelia-postgres:
+        condition: service_healthy
+        restart: true
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${DOCKER_NETWORK_PREFIX}_traefik-2-authelia"
+      - "traefik.http.routers.authelia.rule=Host(`${AUTHELIA_DOMAIN}`)"
+      - "traefik.http.routers.authelia.entrypoints=websecure"
+      - "traefik.http.routers.authelia.tls=true"
+      - "traefik.http.routers.authelia.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.authelia.service=authelia"
+      - "traefik.http.services.authelia.loadbalancer.server.port=9091"
 
   # Analytics
   umami-postgres:
@@ -86,7 +367,8 @@ services:
         volume:
           nocopy: false
     networks:
-      - internal
+      - umami-2-postgres
+      - umami-pgdumper-2-postgres
     restart: unless-stopped
     healthcheck:
       test:
@@ -113,7 +395,7 @@ services:
         source: /var/stor/umami/pgdump
         target: /dump
     networks:
-      - internal
+      - umami-pgdumper-2-postgres
     restart: unless-stopped
     depends_on:
       umami-postgres:
@@ -135,7 +417,7 @@ services:
         target: /data/backup
         read_only: true
     networks:
-      - internal
+      - umami-restic-2-internet
     restart: unless-stopped
 
   umami-valkey:
@@ -153,7 +435,7 @@ services:
         volume:
           nocopy: false
     networks:
-      - internal
+      - umami-2-valkey
     restart: unless-stopped
     healthcheck:
       test:
@@ -177,22 +459,19 @@ services:
       # DISABLE_LOGIN: 1 # CURRENTLY NOT WORKING AS BUG IN SOFTWARE, Requires proper Authelia middleware setup
       DISABLE_UPDATES: 1
     networks:
-      - internal
+      - traefik-2-umami
+      - umami-2-postgres
+      - umami-2-valkey
     labels:
       - "traefik.enable=true"
+      - "traefik.docker.network=${DOCKER_NETWORK_PREFIX}_traefik-2-umami"
       - "traefik.http.routers.umami.rule=Host(`${UMAMI_DOMAIN}`)"
-      - "traefik.http.routers.umami.middlewares=crowdsec@docker,authelia@docker"
+      - "traefik.http.routers.umami.middlewares=authelia@docker"
       - "traefik.http.routers.umami.entrypoints=websecure"
       - "traefik.http.routers.umami.tls=true"
       - "traefik.http.routers.umami.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.umami.service=umami"
       - "traefik.http.services.umami.loadbalancer.server.port=3000"
-      - "traefik.http.middlewares.crowdsec.plugin.bouncer.enabled=true"
-      - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdsecmode=stream"
-      - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdseclapikey=${BOUNCER_KEY_TRAEFIK}"
-      - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdsecappsecenabled=true"
-      - "traefik.http.middlewares.authelia.forwardAuth.address=https://${AUTHELIA_DOMAIN}/api/authz/forward-auth"
-      - "traefik.http.middlewares.authelia.forwardAuth.trustForwardHeader=true"
-      - "traefik.http.middlewares.authelia.forwardAuth.authResponseHeaders=Remote-User,Remote-Groups,Remote-Email,Remote-Name"
     restart: unless-stopped
     depends_on:
       umami-postgres:
@@ -221,7 +500,8 @@ services:
         volume:
           nocopy: false
     networks:
-      - internal
+      - vaultwarden-2-postgres
+      - vaultwarden-pgdumper-2-postgres
     restart: unless-stopped
     healthcheck:
       test:
@@ -248,7 +528,7 @@ services:
         source: /var/stor/vaultwarden/pgdump
         target: /dump
     networks:
-      - internal
+      - vaultwarden-pgdumper-2-postgres
     restart: unless-stopped
     depends_on:
       vaultwarden-postgres:
@@ -270,7 +550,7 @@ services:
         target: /data/backup
         read_only: true
     networks:
-      - internal
+      - vaultwarden-restic-2-internet
     restart: unless-stopped
 
   vaultwarden:
@@ -294,19 +574,17 @@ services:
         source: /var/stor/vaultwarden/data
         target: /data
     networks:
-      - internal
+      - traefik-2-vaultwarden
+      - vaultwarden-2-postgres
     labels:
       - "traefik.enable=true"
+      - "traefik.docker.network=${DOCKER_NETWORK_PREFIX}_traefik-2-vaultwarden"
       - "traefik.http.routers.vaultwarden.rule=Host(`${VAULTWARDEN_DOMAIN}`)"
-      - "traefik.http.routers.vaultwarden.middlewares=crowdsec@docker"
       - "traefik.http.routers.vaultwarden.entrypoints=websecure"
       - "traefik.http.routers.vaultwarden.tls=true"
       - "traefik.http.routers.vaultwarden.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.vaultwarden.service=vaultwarden"
       - "traefik.http.services.vaultwarden.loadbalancer.server.port=80"
-      - "traefik.http.middlewares.crowdsec.plugin.bouncer.enabled=true"
-      - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdsecmode=stream"
-      - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdseclapikey=${BOUNCER_KEY_TRAEFIK}"
-      - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdsecappsecenabled=true"
     restart: unless-stopped
     depends_on:
       vaultwarden-postgres:
@@ -327,7 +605,8 @@ services:
         volume:
           nocopy: false
     networks:
-      - internal
+      - sftpgo-2-postgres
+      - sftpgo-pgdumper-2-postgres
     restart: unless-stopped
     healthcheck:
       test:
@@ -354,7 +633,7 @@ services:
         source: /var/stor/sftpgo/pgdump
         target: /dump
     networks:
-      - internal
+      - sftpgo-pgdumper-2-postgres
     restart: unless-stopped
     depends_on:
       sftpgo-postgres:
@@ -376,7 +655,7 @@ services:
         target: /data/backup
         read_only: true
     networks:
-      - internal
+      - sftpgo-restic-2-internet
     restart: unless-stopped
 
   sftpgo:
@@ -414,19 +693,17 @@ services:
     ports:
       - "2022:2022/tcp"
     networks:
-      - internal
+      - traefik-2-sftpgo
+      - sftpgo-2-postgres
     labels:
       - "traefik.enable=true"
+      - "traefik.docker.network=${DOCKER_NETWORK_PREFIX}_traefik-2-sftpgo"
       - "traefik.http.routers.sftpgo.rule=Host(`${SFTPGO_DOMAIN}`)"
-      - "traefik.http.routers.sftpgo.middlewares=crowdsec@docker"
       - "traefik.http.routers.sftpgo.entrypoints=websecure"
       - "traefik.http.routers.sftpgo.tls=true"
       - "traefik.http.routers.sftpgo.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.sftpgo.service=sftpgo"
       - "traefik.http.services.sftpgo.loadbalancer.server.port=8080"
-      - "traefik.http.middlewares.crowdsec.plugin.bouncer.enabled=true"
-      - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdsecmode=stream"
-      - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdseclapikey=${BOUNCER_KEY_TRAEFIK}"
-      - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdsecappsecenabled=true"
     restart: unless-stopped
     depends_on:
       sftpgo-postgres:
@@ -453,7 +730,7 @@ services:
         source: /var/stor/dvr
         target: /recordings # Same as env RECORDINGS_PATH
     networks:
-      - internal
+      - bigbrother-2-internet
     restart: unless-stopped
 
   # Workspace
@@ -479,29 +756,55 @@ services:
         source: vikunja-db-vol
         target: /db
     networks:
-      - internal
+      - traefik-2-vikunja
     labels:
       - "traefik.enable=true"
+      - "traefik.docker.network=${DOCKER_NETWORK_PREFIX}_traefik-2-vikunja"
       - "traefik.http.routers.vikunja.rule=Host(`${VIKUNJA_DOMAIN}`)"
-      - "traefik.http.routers.vikunja.middlewares=crowdsec@docker"
       - "traefik.http.routers.vikunja.entrypoints=websecure"
       - "traefik.http.routers.vikunja.tls=true"
       - "traefik.http.routers.vikunja.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.vikunja.service=vikunja"
       - "traefik.http.services.vikunja.loadbalancer.server.port=3456"
-      - "traefik.http.middlewares.crowdsec.plugin.bouncer.enabled=true"
-      - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdsecmode=stream"
-      - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdseclapikey=${BOUNCER_KEY_TRAEFIK}"
-      - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdsecappsecenabled=true"
     restart: unless-stopped
 
 networks:
-  internal:
+  traefik-2-crowdsec:
+  traefik-2-whoami:
+  traefik-2-lldap:
+  traefik-2-authelia:
+  traefik-2-umami:
+  traefik-2-vaultwarden:
+  traefik-2-sftpgo:
+  traefik-2-vikunja:
+  lldap-2-postgres:
+  lldap-pgdumper-2-postgres:
+  lldap-restic-2-internet:
+  authelia-2-valkey:
+  authelia-2-postgres:
+  authelia-2-lldap:
+  authelia-pgdumper-2-postgres:
+  authelia-restic-2-internet:
+  umami-2-postgres:
+  umami-pgdumper-2-postgres:
+  umami-restic-2-internet:
+  umami-2-valkey:
+  vaultwarden-2-postgres:
+  vaultwarden-pgdumper-2-postgres:
+  vaultwarden-restic-2-internet:
+  sftpgo-2-postgres:
+  sftpgo-pgdumper-2-postgres:
+  sftpgo-restic-2-internet:
+  bigbrother-2-internet:
 
 volumes:
   crowdsec-db-vol:
   crowdsec-conf-vol:
   traefik-logs-vol:
   traefik-acme-vol:
+  lldap-postgres-vol:
+  authelia-valkey-vol:
+  authelia-postgres-vol:
   umami-postgres-vol:
   umami-valkey-vol:
   vaultwarden-postgres-vol:

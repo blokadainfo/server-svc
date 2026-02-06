@@ -1,5 +1,0 @@
-mc mb binfo-backup/<service>-<type>
-mc quota set binfo-backup/<service>-<type> --size 1t
-mc admin user add binfo-backup <service>-<type> <secret>
-mc admin policy create binfo-backup <service>-<type>-policy minio-policy.json
-mc admin policy attach binfo-backup <service>-<type>-policy --user <service>-<type>
