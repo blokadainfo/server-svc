@@ -734,6 +734,8 @@ services:
       STREAMS_2_DST: ${BIGBROTHER_STREAMS_2_DST}
       STREAMS_3_SRC: ${BIGBROTHER_STREAMS_3_SRC}
       STREAMS_3_DST: ${BIGBROTHER_STREAMS_3_DST}
+      STREAMS_4_SRC: ${BIGBROTHER_STREAMS_4_SRC}
+      STREAMS_4_DST: ${BIGBROTHER_STREAMS_4_DST}
     volumes:
       - type: bind
         source: /var/stor/dvr
