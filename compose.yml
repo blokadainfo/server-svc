@@ -1,45 +1,62 @@
 services:
-  # Reverse proxy
-  crowdsec:
-    image: docker.io/crowdsecurity/crowdsec:v1.6.11
+  # VPN
+  wireguard:
+    image: ghcr.io/wg-easy/wg-easy:15.3.0
     environment:
-      COLLECTIONS: "crowdsecurity/traefik crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules"
-      CUSTOM_HOSTNAME: "crowdsec"
-      BOUNCER_KEY_TRAEFIK: ${BOUNCER_KEY_TRAEFIK}
+      WG_DEVICE: eth0
+      INSECURE: true
+      INIT_ENABLED: true
+      INIT_USERNAME: ${VPN_GUI_USERNAME:-admin}
+      INIT_PASSWORD: ${VPN_GUI_PASSWORD}
+      INIT_HOST: ${VPN_ENDPOINT}
+      INIT_PORT: 51820
+      INIT_DNS: ${VPN_DNS:-} # WARN: Remove empty DNS entry and add keepalive 25 via GUI
+      INIT_IPV4_CIDR: "172.16.14.0/24"
+      INIT_IPV6_CIDR: "2001:0DB8::/32"
+      INIT_ALLOWED_IPS: "172.16.14.0/24,2001:0DB8::/32,172.16.15.0/24"
     volumes:
       - type: volume
-        source: traefik-logs-vol
-        target: /var/log/traefik
-        volume:
-          nocopy: false
-      - type: volume
-        source: crowdsec-db-vol
-        target: /var/lib/crowdsec/data
-        volume:
-          nocopy: false
-      - type: volume
-        source: crowdsec-conf-vol
-        target: /etc/crowdsec
+        source: wireguard-conf-vol
+        target: /etc/wireguard
         volume:
           nocopy: false
       - type: bind
-        source: ./acquis.yaml
-        target: /etc/crowdsec/acquis.yaml
+        source: /lib/modules
+        target: /lib/modules
         read_only: true
+    ports:
+      - "127.0.0.1:51821:51821/tcp" # For debugging and maintenance purposes
+      - "51820:51820/udp"
     networks:
-      - traefik-2-crowdsec
+      wireguard-2-internet:
+        driver_opts:
+          com.docker.network.endpoint.ifname: eth0
+      wireguard-2-internal:
+        driver_opts:
+          com.docker.network.endpoint.ifname: eth1
+        ipv4_address: 172.16.15.253
+      traefik-2-wireguard:
+        driver_opts:
+          com.docker.network.endpoint.ifname: eth2
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.conf.all.src_valid_mark=1
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${DOCKER_NETWORK_PREFIX}_traefik-2-wireguard"
+      - "traefik.http.routers.wireguard.rule=Host(`${VPN_DOMAIN}`)"
+      - "traefik.http.routers.wireguard.entrypoints=websecure"
+      - "traefik.http.routers.wireguard.tls=true"
+      - "traefik.http.routers.wireguard.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.wireguard.service=wireguard"
+      - "traefik.http.services.wireguard.loadbalancer.server.port=51821"
+      # - "traefik.http.middlewares.traefik-real-ip.plugin.traefik-real-ip.excludednets=[]" # WARN: Defined only once, other containers can use this
     restart: unless-stopped
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "wget --spider --quiet --tries=1 --timeout=5 http://localhost:8080/health > /dev/null 2>&1 || exit 1",
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
 
+  # Reverse proxy
   traefik:
     image: docker.io/library/traefik:v3.6.6
     command:
@@ -47,32 +64,23 @@ services:
       - "--accesslog.filepath=/var/log/traefik/access.log"
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
-      - "--entrypoints.web.address=:8080"
+      - "--entrypoints.web.address=:80"
       - "--entrypoints.web.http.redirections.entrypoint.to=:443"
       - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
-      - "--entrypoints.web.http.middlewares=crowdsec@docker"
-      - "--entrypoints.web.forwardedHeaders.trustedIPs=${TRAEFIK_TRUSTED_IPS:-}"
-      - "--entrypoints.websecure.address=:8443"
+      # - "--entrypoints.web.http.middlewares=traefik-real-ip@docker"
+      - "--entrypoints.websecure.address=:443"
       - "--entrypoints.websecure.http3"
       - "--entrypoints.websecure.http3.advertisedPort=443"
-      - "--entrypoints.websecure.http.middlewares=crowdsec@docker"
-      # - "--entrypoints.websecure.http.encodedCharacters.allowEncodedSlash"
-      # - "--entrypoints.websecure.http.encodedCharacters.allowEncodedBackSlash"
-      # - "--entrypoints.websecure.http.encodedCharacters.allowEncodedNullCharacter"
-      # - "--entrypoints.websecure.http.encodedCharacters.allowEncodedSemicolon"
-      # - "--entrypoints.websecure.http.encodedCharacters.allowEncodedPercent"
-      # - "--entrypoints.websecure.http.encodedCharacters.allowEncodedQuestionMark"
-      # - "--entrypoints.websecure.http.encodedCharacters.allowEncodedHash"
-      - "--entrypoints.websecure.forwardedHeaders.trustedIPs=${TRAEFIK_TRUSTED_IPS:-}"
-      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}"
+      # - "--entrypoints.websecure.http.middlewares=traefik-real-ip@docker"
+      - "--certificatesresolvers.letsencrypt.acme.email=${TRAEFIK_ACME_EMAIL}"
       - "--certificatesresolvers.letsencrypt.acme.storage=acme/acme.json"
-      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
-      - "--experimental.plugins.bouncer.modulename=github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin"
-      - "--experimental.plugins.bouncer.version=v1.4.6"
-    ports:
-      - "80:8080/tcp"
-      - "443:8443/tcp"
-      - "443:8443/udp"
+      - "--certificatesresolvers.letsencrypt.acme.dnsChallenge.provider=cloudflare"
+      - "--certificatesresolvers.letsencrypt.acme.dnsChallenge.resolvers=1.1.1.1:53,1.0.0.1:53"
+      # - "--experimental.plugins.traefik-real-ip.modulename=github.com/jramsgz/traefik-real-ip"
+      # - "--experimental.plugins.traefik-real-ip.version=v1.0.7"
+    environment:
+      CF_DNS_API_TOKEN: ${TRAEFIK_CF_API_TOKEN}
+      CF_ZONE_API_TOKEN: ${TRAEFIK_CF_API_TOKEN}
     volumes:
       - type: volume
         source: traefik-logs-vol
@@ -88,38 +96,35 @@ services:
         source: /var/run/docker.sock
         target: /var/run/docker.sock
         read_only: true
+    ports:
+      - "127.0.0.1:80:80/tcp" # WARN: Accessible on localhost only (SSH tunnel)
+      - "127.0.0.1:443:443/tcp" # WARN: Accessible on localhost only (SSH tunnel)
+      - "127.0.0.1:443:443/udp" # WARN: Accessible on localhost only (SSH tunnel)
     networks:
-      - traefik-2-crowdsec
-      - traefik-2-whoami
-      - traefik-2-lldap
-      - traefik-2-authelia
-      - traefik-2-umami
-      - traefik-2-vaultwarden
-      - traefik-2-sftpgo
-      - traefik-2-vikunja
+      traefik-2-internet:
+      traefik-2-wireguard:
+      traefik-2-lldap:
+      traefik-2-authelia:
+      traefik-2-umami:
+      traefik-2-vaultwarden:
+      traefik-2-sftpgo:
+        ipv4_address: 172.19.0.253
+      traefik-2-vikunja:
+        ipv4_address: 172.19.1.253
+      cloudflared-2-traefik:
+      wireguard-2-internal:
+        ipv4_address: 172.16.15.1 # WARN: Makes ports above accessible over VPN
     restart: unless-stopped
-    depends_on:
-      crowdsec:
-        condition: service_healthy
-        restart: true
 
-  whoami:
-    image: docker.io/traefik/whoami:v1.11
-    command:
-      - "--port=8080"
-      - "--name=whoami"
+  cloudflared:
+    image: docker.io/cloudflare/cloudflared:2026.7.2
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARED_TUNNEL_TOKEN}
     networks:
-      - traefik-2-whoami
+      cloudflared-2-internet:
+      cloudflared-2-traefik:
     restart: unless-stopped
-    labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=${DOCKER_NETWORK_PREFIX}_traefik-2-whoami"
-      - "traefik.http.middlewares.crowdsec.plugin.bouncer.enabled=true"
-      - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdsecmode=stream"
-      - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdseclapikey=${BOUNCER_KEY_TRAEFIK}"
-      - "traefik.http.middlewares.crowdsec.plugin.bouncer.crowdsecappsecenabled=true"
-      - "traefik.http.middlewares.authelia.forwardAuth.address=http://authelia:9091/api/authz/forward-auth"
-      - "traefik.http.middlewares.authelia.forwardAuth.authResponseHeaders=Remote-User,Remote-Groups,Remote-Email,Remote-Name"
 
   # IDP
   lldap-postgres:
@@ -197,8 +202,9 @@ services:
       LLDAP_LDAP_USER_PASS: ${LLDAP_ADMIN_PASSWORD}
       LLDAP_DATABASE_URL: "postgres://${LLDAP_POSTGRES_USER:-lld}:${LLDAP_POSTGRES_PASSWORD}@lldap-postgres/${LLDAP_POSTGRES_DB:-lld}"
     networks:
-      - traefik-2-lldap
+      - lldap-2-internet
       - lldap-2-postgres
+      - traefik-2-lldap
       - authelia-2-lldap
     restart: unless-stopped
     depends_on:
@@ -340,10 +346,11 @@ services:
         target: /config/configuration.yml
         read_only: true
     networks:
-      - traefik-2-authelia
+      - authelia-2-internet
       - authelia-2-valkey
       - authelia-2-postgres
       - authelia-2-lldap
+      - traefik-2-authelia
     restart: unless-stopped
     depends_on:
       authelia-valkey:
@@ -361,6 +368,8 @@ services:
       - "traefik.http.routers.authelia.tls.certresolver=letsencrypt"
       - "traefik.http.routers.authelia.service=authelia"
       - "traefik.http.services.authelia.loadbalancer.server.port=9091"
+      - "traefik.http.middlewares.authelia.forwardAuth.address=http://authelia:9091/api/authz/forward-auth"
+      - "traefik.http.middlewares.authelia.forwardAuth.authResponseHeaders=Remote-User,Remote-Groups,Remote-Email,Remote-Name"
 
   # Analytics
   umami-postgres:
@@ -460,17 +469,18 @@ services:
 
   umami:
     init: true # https://github.com/krallin/tini#using-tini
-    image: ghcr.io/umami-software/umami:3.0.3
+    image: ghcr.io/umami-software/umami:3.2.0
     environment:
       DATABASE_URL: postgresql://${UMAMI_DATABASE_USER:-um}:${UMAMI_DATABASE_PASSWORD}@umami-postgres:5432/${UMAMI_DATABASE_DB:-um}
       REDIS_URL: redis://:${UMAMI_CACHE_PASSWORD}@umami-valkey:6379
       APP_SECRET: ${UMAMI_APP_SECRET}
-      # DISABLE_LOGIN: 1 # CURRENTLY NOT WORKING AS BUG IN SOFTWARE, Requires proper Authelia middleware setup
+      DISABLE_LOGIN: 1 # WARN: Requires proper Authelia middleware setup
       DISABLE_UPDATES: 1
     networks:
-      - traefik-2-umami
+      - umami-2-internet
       - umami-2-postgres
       - umami-2-valkey
+      - traefik-2-umami
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=${DOCKER_NETWORK_PREFIX}_traefik-2-umami"
@@ -583,8 +593,9 @@ services:
         source: /var/stor/vaultwarden/data
         target: /data
     networks:
-      - traefik-2-vaultwarden
+      - vaultwarden-2-internet
       - vaultwarden-2-postgres
+      - traefik-2-vaultwarden
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=${DOCKER_NETWORK_PREFIX}_traefik-2-vaultwarden"
@@ -669,6 +680,8 @@ services:
 
   sftpgo:
     image: ghcr.io/drakkan/sftpgo:v2.6.6-distroless-slim
+    extra_hosts:
+      - "${AUTHELIA_DOMAIN}:172.19.0.253"
     environment:
       SFTPGO_DEFAULT_ADMIN_USERNAME: ${SFTPGO_ADMIN_USERNAME:-admin}
       SFTPGO_DEFAULT_ADMIN_PASSWORD: ${SFTPGO_ADMIN_PASSWORD}
@@ -702,8 +715,9 @@ services:
     ports:
       - "2022:2022/tcp"
     networks:
-      - traefik-2-sftpgo
+      - sftpgo-2-internet
       - sftpgo-2-postgres
+      - traefik-2-sftpgo
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=${DOCKER_NETWORK_PREFIX}_traefik-2-sftpgo"
@@ -718,6 +732,44 @@ services:
       sftpgo-postgres:
         condition: service_healthy
         restart: true
+
+  # Workspace
+  vikunja:
+    image: docker.io/vikunja/vikunja:1.0.0-rc3
+    extra_hosts:
+      - "${AUTHELIA_DOMAIN}:172.19.1.253"
+    environment:
+      VIKUNJA_SERVICE_PUBLICURL: "https://${VIKUNJA_DOMAIN}"
+      VIKUNJA_SERVICE_ENABLEREGISTRATION: false
+      VIKUNJA_SERVICE_ENABLEUSERDELETION: false
+      VIKUNJA_AUTH_OPENID_ENABLED: true
+      VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHELIA_NAME: "Authelia"
+      VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHELIA_AUTHURL: "https://${AUTHELIA_DOMAIN}"
+      VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHELIA_CLIENTID: "vikunja"
+      VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHELIA_CLIENTSECRET: ${VIKUNJA_SECRET}
+      VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHELIA_SCOPE: "openid profile email vikunja_scope"
+      VIKUNJA_SERVICE_CUSTOMLOGOURL: ${VIKUNJA_LOGO}
+      VIKUNJA_AUTH_LOCAL_ENABLED: false
+    volumes:
+      - type: volume
+        source: vikunja-files-vol
+        target: /app/vikunja/files
+      - type: volume
+        source: vikunja-db-vol
+        target: /db
+    networks:
+      - vikunja-2-internet
+      - traefik-2-vikunja
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${DOCKER_NETWORK_PREFIX}_traefik-2-vikunja"
+      - "traefik.http.routers.vikunja.rule=Host(`${VIKUNJA_DOMAIN}`)"
+      - "traefik.http.routers.vikunja.entrypoints=websecure"
+      - "traefik.http.routers.vikunja.tls=true"
+      - "traefik.http.routers.vikunja.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.vikunja.service=vikunja"
+      - "traefik.http.services.vikunja.loadbalancer.server.port=3456"
+    restart: unless-stopped
 
   # BigBrotherDVR
   bigbrother:
@@ -744,73 +796,102 @@ services:
       - bigbrother-2-internet
     restart: unless-stopped
 
-  # Workspace
-  vikunja:
-    image: docker.io/vikunja/vikunja:1.0.0-rc3
-    environment:
-      VIKUNJA_SERVICE_PUBLICURL: "https://${VIKUNJA_DOMAIN}"
-      VIKUNJA_SERVICE_ENABLEREGISTRATION: false
-      VIKUNJA_SERVICE_ENABLEUSERDELETION: false
-      VIKUNJA_AUTH_OPENID_ENABLED: true
-      VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHELIA_NAME: "Authelia"
-      VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHELIA_AUTHURL: "https://${AUTHELIA_DOMAIN}"
-      VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHELIA_CLIENTID: "vikunja"
-      VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHELIA_CLIENTSECRET: ${VIKUNJA_SECRET}
-      VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHELIA_SCOPE: "openid profile email vikunja_scope"
-      VIKUNJA_SERVICE_CUSTOMLOGOURL: ${VIKUNJA_LOGO}
-      VIKUNJA_AUTH_LOCAL_ENABLED: false
-    volumes:
-      - type: volume
-        source: vikunja-files-vol
-        target: /app/vikunja/files
-      - type: volume
-        source: vikunja-db-vol
-        target: /db
-    networks:
-      - traefik-2-vikunja
-    labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=${DOCKER_NETWORK_PREFIX}_traefik-2-vikunja"
-      - "traefik.http.routers.vikunja.rule=Host(`${VIKUNJA_DOMAIN}`)"
-      - "traefik.http.routers.vikunja.entrypoints=websecure"
-      - "traefik.http.routers.vikunja.tls=true"
-      - "traefik.http.routers.vikunja.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.vikunja.service=vikunja"
-      - "traefik.http.services.vikunja.loadbalancer.server.port=3456"
-    restart: unless-stopped
-
 networks:
-  traefik-2-crowdsec:
-  traefik-2-whoami:
+  wireguard-2-internet:
+    internal: false
+  wireguard-2-internal:
+    internal: true
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: "172.16.15.0/24"
+          gateway: "172.16.15.254"
+  traefik-2-internet:
+    internal: false
+  traefik-2-wireguard:
+    internal: true
   traefik-2-lldap:
+    internal: true
   traefik-2-authelia:
+    internal: true
   traefik-2-umami:
+    internal: true
   traefik-2-vaultwarden:
+    internal: true
   traefik-2-sftpgo:
+    internal: true
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: "172.19.0.0/24"
+          gateway: "172.19.0.254"
   traefik-2-vikunja:
+    internal: true
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: "172.19.1.0/24"
+          gateway: "172.19.1.254"
+  cloudflared-2-internet:
+    internal: false
+  cloudflared-2-traefik:
+    internal: true
+  lldap-2-internet:
+    internal: false
   lldap-2-postgres:
+    internal: true
   lldap-pgdumper-2-postgres:
+    internal: true
   lldap-restic-2-internet:
+    internal: false
+  authelia-2-internet:
+    internal: false
   authelia-2-valkey:
+    internal: true
   authelia-2-postgres:
+    internal: true
   authelia-2-lldap:
+    internal: true
   authelia-pgdumper-2-postgres:
+    internal: true
   authelia-restic-2-internet:
+    internal: false
+  umami-2-internet:
+    internal: false
   umami-2-postgres:
+    internal: true
   umami-pgdumper-2-postgres:
+    internal: true
   umami-restic-2-internet:
+    internal: false
   umami-2-valkey:
+    internal: true
+  vaultwarden-2-internet:
+    internal: false
   vaultwarden-2-postgres:
+    internal: true
   vaultwarden-pgdumper-2-postgres:
+    internal: true
   vaultwarden-restic-2-internet:
+    internal: false
+  sftpgo-2-internet:
+    internal: false
   sftpgo-2-postgres:
+    internal: true
   sftpgo-pgdumper-2-postgres:
+    internal: true
   sftpgo-restic-2-internet:
+    internal: false
+  vikunja-2-internet:
+    internal: false
   bigbrother-2-internet:
+    internal: false
 
 volumes:
-  crowdsec-db-vol:
-  crowdsec-conf-vol:
+  wireguard-conf-vol:
   traefik-logs-vol:
   traefik-acme-vol:
   lldap-postgres-vol:
