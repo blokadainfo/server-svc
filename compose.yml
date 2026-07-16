@@ -200,7 +200,6 @@ services:
       LLDAP_LDAP_USER_PASS: ${LLDAP_ADMIN_PASSWORD}
       LLDAP_DATABASE_URL: "postgres://${LLDAP_POSTGRES_USER:-lld}:${LLDAP_POSTGRES_PASSWORD}@lldap-postgres/${LLDAP_POSTGRES_DB:-lld}"
     networks:
-      - lldap-2-internet
       - lldap-2-postgres
       - traefik-2-lldap
       - authelia-2-lldap
@@ -475,7 +474,6 @@ services:
       DISABLE_LOGIN: 1 # WARN: Requires proper Authelia middleware setup
       DISABLE_UPDATES: 1
     networks:
-      - umami-2-internet
       - umami-2-postgres
       - umami-2-valkey
       - traefik-2-umami
@@ -837,8 +835,8 @@ networks:
     internal: false
   cloudflared-2-traefik:
     internal: true
-  lldap-2-internet:
-    internal: false
+  # lldap-2-internet:
+  #   internal: false
   lldap-2-postgres:
     internal: true
   lldap-pgdumper-2-postgres:
@@ -857,8 +855,8 @@ networks:
     internal: true
   authelia-restic-2-internet:
     internal: false
-  umami-2-internet:
-    internal: false
+  # umami-2-internet:
+  #   internal: false
   umami-2-postgres:
     internal: true
   umami-pgdumper-2-postgres:
