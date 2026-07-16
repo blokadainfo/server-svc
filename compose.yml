@@ -474,6 +474,7 @@ services:
       DISABLE_LOGIN: 1 # WARN: Requires proper Authelia middleware setup
       DISABLE_UPDATES: 1
     networks:
+      - umami-2-internet
       - umami-2-postgres
       - umami-2-valkey
       - traefik-2-umami
@@ -835,8 +836,6 @@ networks:
     internal: false
   cloudflared-2-traefik:
     internal: true
-  # lldap-2-internet:
-  #   internal: false
   lldap-2-postgres:
     internal: true
   lldap-pgdumper-2-postgres:
@@ -855,8 +854,8 @@ networks:
     internal: true
   authelia-restic-2-internet:
     internal: false
-  # umami-2-internet:
-  #   internal: false
+  umami-2-internet:
+    internal: false
   umami-2-postgres:
     internal: true
   umami-pgdumper-2-postgres:
