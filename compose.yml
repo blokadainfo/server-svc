@@ -471,7 +471,7 @@ services:
       DATABASE_URL: postgresql://${UMAMI_DATABASE_USER:-um}:${UMAMI_DATABASE_PASSWORD}@umami-postgres:5432/${UMAMI_DATABASE_DB:-um}
       REDIS_URL: redis://:${UMAMI_CACHE_PASSWORD}@umami-valkey:6379
       APP_SECRET: ${UMAMI_APP_SECRET}
-      DISABLE_LOGIN: 1 # WARN: Requires proper Authelia middleware setup
+      # DISABLE_LOGIN: 1 # WARN: Requires proper Authelia middleware setup
       DISABLE_UPDATES: 1
     networks:
       - umami-2-internet
