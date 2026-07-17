@@ -707,6 +707,8 @@ services:
   # Backups
   resticprofile:
     image: ghcr.io/creativeprojects/resticprofile:0.33.1
+    entrypoint: ["sh", "-c"]
+    command: ["resticprofile schedule --all && crond -f"]
     environment:
       # LLDAP
       LLDAP_S3_ENDPOINT: ${RESTICPROFILE_LLDAP_S3_ENDPOINT}
@@ -741,7 +743,7 @@ services:
     volumes:
       - type: bind
         source: ./resticprofile.yaml
-        target: /resticprofile/profiles.yaml
+        target: /etc/resticprofile/profiles.yaml
         read_only: true
       - type: bind
         source: /var/stor

@@ -2,6 +2,9 @@
 
 version: "1"
 
+global:
+  scheduler: crond
+
 lldap:
   repository: "s3:https://{{ .Env.LLDAP_S3_ENDPOINT }}/{{ .Env.LLDAP_S3_BUCKET }}"
   env:
@@ -12,7 +15,8 @@ lldap:
     source:
       - "/data/backup/lldap"
     schedule: "hourly"
-    schedule-after-network-online: true
+    schedule-permission: "system"
+    check-before: true
   retention:
     before-backup: false
     after-backup: true
@@ -34,7 +38,8 @@ authelia:
     source:
       - "/data/backup/authelia"
     schedule: "hourly"
-    schedule-after-network-online: true
+    schedule-permission: "system"
+    check-before: true
   retention:
     before-backup: false
     after-backup: true
@@ -56,7 +61,8 @@ umami:
     source:
       - "/data/backup/umami"
     schedule: "hourly"
-    schedule-after-network-online: true
+    schedule-permission: "system"
+    check-before: true
   retention:
     before-backup: false
     after-backup: true
@@ -78,7 +84,8 @@ vaultwarden:
     source:
       - "/data/backup/vaultwarden"
     schedule: "hourly"
-    schedule-after-network-online: true
+    schedule-permission: "system"
+    check-before: true
   retention:
     before-backup: false
     after-backup: true
@@ -100,7 +107,8 @@ sftpgo:
     source:
       - "/data/backup/sftpgo"
     schedule: "hourly"
-    schedule-after-network-online: true
+    schedule-permission: "system"
+    check-before: true
   retention:
     before-backup: false
     after-backup: true
