@@ -1,0 +1,113 @@
+# yaml-language-server: $schema=https://creativeprojects.github.io/resticprofile/jsonschema/config.json
+
+version: "1"
+
+lldap:
+  repository: "s3:https://{{ .Env.LLDAP_S3_ENDPOINT }}/{{ .Env.LLDAP_S3_BUCKET }}"
+  env:
+    RESTIC_PASSWORD: "{{ .Env.LLDAP_ENCRYPTION_KEY }}"
+    AWS_ACCESS_KEY_ID: "{{ .Env.LLDAP_S3_ACCESS_KEY_ID }}"
+    AWS_SECRET_ACCESS_KEY: "{{ .Env.LLDAP_S3_SECRET_ACCESS_KEY }}"
+  backup:
+    source:
+      - "/data/backup/lldap"
+    schedule: "hourly"
+    schedule-after-network-online: true
+  retention:
+    before-backup: false
+    after-backup: true
+    keep-last: 10
+    keep-hourly: 72
+    keep-daily: 14
+    keep-weekly: 4
+    keep-monthly: 6
+    keep-yearly: 1
+    prune: true
+
+authelia:
+  repository: "s3:https://{{ .Env.AUTHELIA_S3_ENDPOINT }}/{{ .Env.AUTHELIA_S3_BUCKET }}"
+  env:
+    RESTIC_PASSWORD: "{{ .Env.AUTHELIA_ENCRYPTION_KEY }}"
+    AWS_ACCESS_KEY_ID: "{{ .Env.AUTHELIA_S3_ACCESS_KEY_ID }}"
+    AWS_SECRET_ACCESS_KEY: "{{ .Env.AUTHELIA_S3_SECRET_ACCESS_KEY }}"
+  backup:
+    source:
+      - "/data/backup/authelia"
+    schedule: "hourly"
+    schedule-after-network-online: true
+  retention:
+    before-backup: false
+    after-backup: true
+    keep-last: 10
+    keep-hourly: 72
+    keep-daily: 14
+    keep-weekly: 4
+    keep-monthly: 6
+    keep-yearly: 1
+    prune: true
+
+umami:
+  repository: "s3:https://{{ .Env.UMAMI_S3_ENDPOINT }}/{{ .Env.UMAMI_S3_BUCKET }}"
+  env:
+    RESTIC_PASSWORD: "{{ .Env.UMAMI_ENCRYPTION_KEY }}"
+    AWS_ACCESS_KEY_ID: "{{ .Env.UMAMI_S3_ACCESS_KEY_ID }}"
+    AWS_SECRET_ACCESS_KEY: "{{ .Env.UMAMI_S3_SECRET_ACCESS_KEY }}"
+  backup:
+    source:
+      - "/data/backup/umami"
+    schedule: "hourly"
+    schedule-after-network-online: true
+  retention:
+    before-backup: false
+    after-backup: true
+    keep-last: 10
+    keep-hourly: 72
+    keep-daily: 14
+    keep-weekly: 4
+    keep-monthly: 6
+    keep-yearly: 1
+    prune: true
+
+vaultwarden:
+  repository: "s3:https://{{ .Env.VAULTWARDEN_S3_ENDPOINT }}/{{ .Env.VAULTWARDEN_S3_BUCKET }}"
+  env:
+    RESTIC_PASSWORD: "{{ .Env.VAULTWARDEN_ENCRYPTION_KEY }}"
+    AWS_ACCESS_KEY_ID: "{{ .Env.VAULTWARDEN_S3_ACCESS_KEY_ID }}"
+    AWS_SECRET_ACCESS_KEY: "{{ .Env.VAULTWARDEN_S3_SECRET_ACCESS_KEY }}"
+  backup:
+    source:
+      - "/data/backup/vaultwarden"
+    schedule: "hourly"
+    schedule-after-network-online: true
+  retention:
+    before-backup: false
+    after-backup: true
+    keep-last: 10
+    keep-hourly: 72
+    keep-daily: 14
+    keep-weekly: 4
+    keep-monthly: 6
+    keep-yearly: 1
+    prune: true
+
+sftpgo:
+  repository: "s3:https://{{ .Env.SFTPGO_S3_ENDPOINT }}/{{ .Env.SFTPGO_S3_BUCKET }}"
+  env:
+    RESTIC_PASSWORD: "{{ .Env.SFTPGO_ENCRYPTION_KEY }}"
+    AWS_ACCESS_KEY_ID: "{{ .Env.SFTPGO_S3_ACCESS_KEY_ID }}"
+    AWS_SECRET_ACCESS_KEY: "{{ .Env.SFTPGO_S3_SECRET_ACCESS_KEY }}"
+  backup:
+    source:
+      - "/data/backup/sftpgo"
+    schedule: "hourly"
+    schedule-after-network-online: true
+  retention:
+    before-backup: false
+    after-backup: true
+    keep-last: 10
+    keep-hourly: 72
+    keep-daily: 14
+    keep-weekly: 4
+    keep-monthly: 6
+    keep-yearly: 1
+    prune: true
