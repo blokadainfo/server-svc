@@ -4,6 +4,7 @@ version: "1"
 
 global:
   scheduler: crond
+  initialize: true
 
 lldap:
   repository: "s3:https://{{ .Env.LLDAP_S3_ENDPOINT }}/{{ .Env.LLDAP_S3_BUCKET }}"
