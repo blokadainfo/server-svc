@@ -51,7 +51,8 @@ services:
       - "traefik.http.routers.wireguard.tls.certresolver=letsencrypt"
       - "traefik.http.routers.wireguard.service=wireguard"
       - "traefik.http.services.wireguard.loadbalancer.server.port=51821"
-      # - "traefik.http.middlewares.traefik-real-ip.plugin.traefik-real-ip.excludednets=[]" # WARN: Defined only once, other containers can use this
+      - "traefik.http.middlewares.traefik-real-ip.plugin.traefik-real-ip.enabled=true"
+      # ^ TODO: Move to a whoami (placeholder) container
     restart: unless-stopped
 
   # Reverse proxy
@@ -65,17 +66,17 @@ services:
       - "--entrypoints.web.address=:80"
       - "--entrypoints.web.http.redirections.entrypoint.to=:443"
       - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
-      # - "--entrypoints.web.http.middlewares=traefik-real-ip@docker"
+      - "--entrypoints.web.http.middlewares=traefik-real-ip@docker"
       - "--entrypoints.websecure.address=:443"
       - "--entrypoints.websecure.http3"
       - "--entrypoints.websecure.http3.advertisedPort=443"
-      # - "--entrypoints.websecure.http.middlewares=traefik-real-ip@docker"
+      - "--entrypoints.websecure.http.middlewares=traefik-real-ip@docker"
       - "--certificatesresolvers.letsencrypt.acme.email=${TRAEFIK_ACME_EMAIL}"
       - "--certificatesresolvers.letsencrypt.acme.storage=acme/acme.json"
       - "--certificatesresolvers.letsencrypt.acme.dnsChallenge.provider=cloudflare"
       - "--certificatesresolvers.letsencrypt.acme.dnsChallenge.resolvers=1.1.1.1:53,1.0.0.1:53"
-      # - "--experimental.plugins.traefik-real-ip.modulename=github.com/jramsgz/traefik-real-ip"
-      # - "--experimental.plugins.traefik-real-ip.version=v1.0.7"
+      - "--experimental.plugins.traefik-real-ip.modulename=github.com/jramsgz/traefik-real-ip"
+      - "--experimental.plugins.traefik-real-ip.version=v1.0.7"
     environment:
       CF_DNS_API_TOKEN: ${TRAEFIK_CF_API_TOKEN}
       CF_ZONE_API_TOKEN: ${TRAEFIK_CF_API_TOKEN}
