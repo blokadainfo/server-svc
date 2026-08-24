@@ -499,7 +499,7 @@ services:
         restart: true
 
   vaultwarden:
-    image: docker.io/vaultwarden/server:1.34.3
+    image: docker.io/vaultwarden/server:1.37.2
     environment:
       DATABASE_URL: "postgresql://${VAULTWARDEN_DATABASE_USER:-vw}:${VAULTWARDEN_DATABASE_PASSWORD}@vaultwarden-postgres:5432/${VAULTWARDEN_DATABASE_DB:-vw}"
       DOMAIN: "https://${VAULTWARDEN_DOMAIN}"
