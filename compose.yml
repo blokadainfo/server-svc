@@ -607,6 +607,9 @@ services:
       SFTPGO_HTTPD__BINDINGS__0__OIDC__SCOPES: "openid,profile,email,sftpgo"
       SFTPGO_HTTPD__BINDINGS__0__OIDC__USERNAME_FIELD: "preferred_username"
       SFTPGO_HTTPD__BINDINGS__0__OIDC__ROLE_FIELD: "sftpgo_role"
+      SFTPGO_WEBDAVD__BINDINGS__0__PORT: 8081
+      SFTPGO_WEBDAVD__BINDINGS__0__PROXY_ALLOWED: "172.19.0.253/32"
+      SFTPGO_WEBDAVD__BINDINGS__0__CLIENT_IP_PROXY_HEADER: "X-Forwarded-For" 
       SFTPGO_SMTP__HOST: ${SFTPGO_SMTP_HOST:-}
       SFTPGO_SMTP__PORT: ${SFTPGO_SMTP_PORT:-587}
       SFTPGO_SMTP__FROM: ${SFTPGO_SMTP_FROM:-}
@@ -635,6 +638,12 @@ services:
       - "traefik.http.routers.sftpgo.tls.certresolver=letsencrypt"
       - "traefik.http.routers.sftpgo.service=sftpgo"
       - "traefik.http.services.sftpgo.loadbalancer.server.port=8080"
+      - "traefik.http.routers.sftpgo-webdav.rule=Host(`${SFTPGO_WEBDAV_DOMAIN}`)"
+      - "traefik.http.routers.sftpgo-webdav.entrypoints=websecure"
+      - "traefik.http.routers.sftpgo-webdav.tls=true"
+      - "traefik.http.routers.sftpgo-webdav.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.sftpgo-webdav.service=sftpgo-webdav"
+      - "traefik.http.services.sftpgo-webdav.loadbalancer.server.port=8081"
     restart: unless-stopped
     depends_on:
       sftpgo-postgres:
