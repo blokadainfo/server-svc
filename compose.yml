@@ -186,6 +186,7 @@ services:
       - lldap-2-postgres
       - traefik-2-lldap
       - authelia-2-lldap
+      - sftpgo-2-lldap
     restart: unless-stopped
     depends_on:
       lldap-postgres:
@@ -587,7 +588,7 @@ services:
         restart: true
 
   sftpgo:
-    image: ghcr.io/drakkan/sftpgo:v2.6.6-distroless-slim
+    image: ghcr.io/drakkan/sftpgo:v2.7.5-plugins
     extra_hosts:
       - "${AUTHELIA_DOMAIN}:172.19.0.253"
     environment:
@@ -616,6 +617,19 @@ services:
       SFTPGO_SMTP__USER: ${SFTPGO_SMTP_USERNAME:-}
       SFTPGO_SMTP__PASSWORD: ${SFTPGO_SMTP_PASSWORD:-}
       SFTPGO_SMTP__ENCRYPTION: ${SFTPGO_SMTP_ENCRYPTION:-2}
+      # WARN: LDAP requires plugins tag on the docker image
+      SFTPGO_PLUGIN_AUTH_LDAP_URL: "ldap://lldap:3890"
+      SFTPGO_PLUGIN_AUTH_LDAP_BASE_DN: "${LLDAP_BASE_DN}"
+      SFTPGO_PLUGIN_AUTH_LDAP_BIND_DN: "UID=sftpgo,OU=people,${LLDAP_BASE_DN}"
+      SFTPGO_PLUGIN_AUTH_LDAP_PASSWORD: ${SFTPGO_LDAP_PASSWORD}
+      SFTPGO_PLUGIN_AUTH_LDAP_SEARCH_QUERY: "(&(|(uid=%username%)(mail=%username%))(objectClass=person))"
+      SFTPGO_PLUGIN_AUTH_STARTTLS: 0
+      SFTPGO_PLUGIN_AUTH_USER_REQUIREMENTS: 1 # WARN: Forces users to login using OpenID Connect the first time (so the default dir, virtual folders and groups are configured properly)
+      SFTPGO_PLUGINS__0__TYPE: "auth"
+      SFTPGO_PLUGINS__0__AUTH_OPTIONS__SCOPE: 5
+      SFTPGO_PLUGINS__0__CMD: "/usr/local/bin/sftpgo-plugin-auth"
+      SFTPGO_PLUGINS__0__ARGS: "serve"
+      SFTPGO_PLUGINS__0__AUTO_MTLS: 1
     volumes:
       - type: bind
         source: /var/stor/sftpgo/internal
@@ -628,6 +642,7 @@ services:
     networks:
       - sftpgo-2-internet
       - sftpgo-2-postgres
+      - sftpgo-2-lldap
       - traefik-2-sftpgo
     labels:
       - "traefik.enable=true"
@@ -842,6 +857,8 @@ networks:
   sftpgo-2-internet:
     internal: false
   sftpgo-2-postgres:
+    internal: true
+  sftpgo-2-lldap:
     internal: true
   sftpgo-pgdumper-2-postgres:
     internal: true
