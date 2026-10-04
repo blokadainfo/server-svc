@@ -610,7 +610,7 @@ services:
       SFTPGO_HTTPD__BINDINGS__0__OIDC__ROLE_FIELD: "sftpgo_role"
       SFTPGO_WEBDAVD__BINDINGS__0__PORT: 8081
       SFTPGO_WEBDAVD__BINDINGS__0__PROXY_ALLOWED: "172.19.0.253/32"
-      SFTPGO_WEBDAVD__BINDINGS__0__CLIENT_IP_PROXY_HEADER: "X-Forwarded-For" 
+      SFTPGO_WEBDAVD__BINDINGS__0__CLIENT_IP_PROXY_HEADER: "X-Forwarded-For"
       SFTPGO_SMTP__HOST: ${SFTPGO_SMTP_HOST:-}
       SFTPGO_SMTP__PORT: ${SFTPGO_SMTP_PORT:-587}
       SFTPGO_SMTP__FROM: ${SFTPGO_SMTP_FROM:-}
@@ -637,6 +637,10 @@ services:
       - type: bind
         source: /var/stor/sftpgo/storage
         target: /var/lib/sftpgo
+      - type: bind
+        source: /var/stor/dvr
+        target: /dvr
+        read_only: true
     ports:
       - "2022:2022/tcp"
     networks:
