@@ -709,11 +709,12 @@ services:
 
   # BigBrotherDVR
   bigbrother:
-    image: ghcr.io/blokadainfo/bigbrother:v0.0.1
+    image: ghcr.io/blokadainfo/bigbrother:v0.1.0
     environment:
+      TZ: "Europe/Belgrade"
       RECORDINGS_PATH: "/recordings" # Same as volume target
-      RECORDINGS_LIMIT: 1000 # In GB
-      RECORDINGS_DRYRUN: false
+      RECORDINGS_LIMIT: 0 # In GB, 0 means unlimited
+      RECORDINGS_DRYRUN: true # Set to false to actually remove files
       STREAMS_0_SRC: ${BIGBROTHER_STREAMS_0_SRC}
       STREAMS_0_DST: ${BIGBROTHER_STREAMS_0_DST}
       STREAMS_1_SRC: ${BIGBROTHER_STREAMS_1_SRC}
