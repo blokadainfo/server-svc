@@ -1,7 +1,7 @@
 services:
   # VPN
   wireguard:
-    image: ghcr.io/wg-easy/wg-easy:15.3.0
+    image: ghcr.io/wg-easy/wg-easy:15.4.0
     environment:
       WG_DEVICE: eth0
       INIT_ENABLED: true
@@ -57,7 +57,7 @@ services:
 
   # Reverse proxy
   traefik:
-    image: docker.io/library/traefik:v3.6.6
+    image: docker.io/library/traefik:v3.7.7
     command:
       - "--accesslog"
       - "--accesslog.filepath=/var/log/traefik/access.log"
@@ -116,7 +116,7 @@ services:
     restart: unless-stopped
 
   cloudflared:
-    image: docker.io/cloudflare/cloudflared:2026.7.2
+    image: docker.io/cloudflare/cloudflared:2026.10.0
     command: ["tunnel", "--no-autoupdate", "run"]
     environment:
       TUNNEL_TOKEN: ${CLOUDFLARED_TUNNEL_TOKEN}
@@ -175,7 +175,7 @@ services:
         restart: true
 
   lldap:
-    image: docker.io/lldap/lldap:v0.6.2
+    image: docker.io/lldap/lldap:v0.6.3
     environment:
       LLDAP_JWT_SECRET: ${LLDAP_JWT_SECRET}
       LLDAP_KEY_SEED: ${LLDAP_KEY_SEED}
@@ -278,7 +278,7 @@ services:
         restart: true
 
   authelia:
-    image: docker.io/authelia/authelia:4.39.14
+    image: docker.io/authelia/authelia:4.39.28
     environment:
       AUTHELIA_AUTHENTICATION_BACKEND_PASSWORD_RESET_DISABLE: true
       AUTHELIA_AUTHENTICATION_BACKEND_LDAP_IMPLEMENTATION: "lldap"
@@ -500,7 +500,7 @@ services:
         restart: true
 
   vaultwarden:
-    image: docker.io/vaultwarden/server:1.37.2
+    image: docker.io/vaultwarden/server:1.37.4
     environment:
       DATABASE_URL: "postgresql://${VAULTWARDEN_DATABASE_USER:-vw}:${VAULTWARDEN_DATABASE_PASSWORD}@vaultwarden-postgres:5432/${VAULTWARDEN_DATABASE_DB:-vw}"
       DOMAIN: "https://${VAULTWARDEN_DOMAIN}"
@@ -588,7 +588,7 @@ services:
         restart: true
 
   sftpgo:
-    image: ghcr.io/drakkan/sftpgo:v2.7.5-plugins
+    image: ghcr.io/drakkan/sftpgo:v2.7.6-plugins
     extra_hosts:
       - "${AUTHELIA_DOMAIN}:172.19.0.253"
     environment:
