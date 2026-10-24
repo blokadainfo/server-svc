@@ -729,6 +729,8 @@ services:
       STREAMS_5_DST: ${BIGBROTHER_STREAMS_5_DST}
       STREAMS_6_SRC: ${BIGBROTHER_STREAMS_6_SRC}
       STREAMS_6_DST: ${BIGBROTHER_STREAMS_6_DST}
+      STREAMS_7_SRC: ${BIGBROTHER_STREAMS_7_SRC}
+      STREAMS_7_DST: ${BIGBROTHER_STREAMS_7_DST}
     volumes:
       - type: bind
         source: /var/stor/dvr/1-izborni-dan
