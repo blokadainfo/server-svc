@@ -733,7 +733,7 @@ services:
       STREAMS_7_DST: ${BIGBROTHER_STREAMS_7_DST}
     volumes:
       - type: bind
-        source: /var/stor/dvr/1-izborni-dan
+        source: /var/stor/dvr
         target: /recordings # Same as env RECORDINGS_PATH
     networks:
       - bigbrother-2-internet
